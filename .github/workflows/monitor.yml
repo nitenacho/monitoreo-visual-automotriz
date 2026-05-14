@@ -25,7 +25,7 @@ jobs:
       NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
       NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
       DIFF_THRESHOLD_PERCENT: '1'
-      USE_SEED_WHEN_NO_STRAPI: 'false'
+      USE_SEED_WHEN_NO_STRAPI: 'true'
       OUTPUT_DIR: reports
       BASELINE_DIR: baselines
       SCREENSHOTS_DIR: screenshots

@@ -1,0 +1,28 @@
+{
+  "name": "monitoreo-visual-automotriz",
+  "version": "1.0.0",
+  "description": "Monitoreo visual dinámico para marcas automotrices Andes Motor con Strapi, Playwright, Discord y Netlify.",
+  "type": "module",
+  "main": "monitor.js",
+  "scripts": {
+    "monitor": "node monitor.js",
+    "check": "node --check monitor.js",
+    "playwright:install": "playwright install --with-deps chromium"
+  },
+  "keywords": [
+    "visual-regression",
+    "playwright",
+    "strapi",
+    "discord",
+    "netlify"
+  ],
+  "license": "UNLICENSED",
+  "dependencies": {
+    "@playwright/test": "^1.53.0",
+    "pixelmatch": "^7.1.0",
+    "pngjs": "^7.0.0"
+  },
+  "devDependencies": {
+    "netlify-cli": "^17.38.1"
+  }
+}

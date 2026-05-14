@@ -1,0 +1,8 @@
+node_modules/
+.env
+.env.*
+!.env.example
+screenshots/
+reports/assets/
+reports/index.html
+.DS_Store

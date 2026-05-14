@@ -1,0 +1,72 @@
+name: Monitoreo visual automotriz
+
+on:
+  workflow_dispatch:
+  schedule:
+    # 3 veces al día en horario hábil Chile aprox. Ajustar según necesidad.
+    - cron: '0 12,17,22 * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: visual-monitoring
+  cancel-in-progress: false
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    env:
+      STRAPI_API_URL: ${{ secrets.STRAPI_API_URL }}
+      STRAPI_TOKEN: ${{ secrets.STRAPI_TOKEN }}
+      DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+      NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+      NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
+      DIFF_THRESHOLD_PERCENT: '1'
+      USE_SEED_WHEN_NO_STRAPI: 'false'
+      OUTPUT_DIR: reports
+      BASELINE_DIR: baselines
+      SCREENSHOTS_DIR: screenshots
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Instalar Chromium Playwright
+        run: npx playwright install --with-deps chromium
+
+      - name: Restaurar baselines
+        uses: actions/cache@v4
+        with:
+          path: baselines
+          key: visual-baselines-${{ github.ref_name }}
+          restore-keys: |
+            visual-baselines-
+
+      - name: Ejecutar monitoreo
+        run: npm run monitor
+
+      - name: Guardar reporte como artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-monitoring-report
+          path: |
+            reports
+            screenshots
+          retention-days: 14
+
+      - name: Desplegar reporte en Netlify
+        if: always()
+        run: npx netlify deploy --prod --dir=reports --functions=netlify/functions --site="$NETLIFY_SITE_ID" --auth="$NETLIFY_AUTH_TOKEN"

@@ -21,8 +21,5 @@
     "@playwright/test": "^1.53.0",
     "pixelmatch": "^7.1.0",
     "pngjs": "^7.0.0"
-  },
-  "devDependencies": {
-    "netlify-cli": "^17.38.1"
   }
 }

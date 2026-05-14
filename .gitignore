@@ -6,3 +6,7 @@ screenshots/
 reports/assets/
 reports/index.html
 .DS_Store
+
+.netlify/
+job.log
+scripts/configure-secrets.mjs

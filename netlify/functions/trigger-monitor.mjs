@@ -53,6 +53,6 @@ export async function handler(event) {
 
   return json(202, {
     ok: true,
-    message: 'Monitoreo iniciado. El dashboard se actualizará cuando termine GitHub Actions + deploy Netlify.'
+    message: 'Monitoreo iniciado. El dashboard se actualizara cuando termine GitHub Actions + deploy Netlify.'
   });
 }

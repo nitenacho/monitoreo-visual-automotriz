@@ -62,18 +62,23 @@ async function main() {
     throw new Error('No hay páginas activas para monitorear. Revisa Strapi o habilita USE_SEED_WHEN_NO_STRAPI=true.');
   }
 
-  const browser = await chromium.launch({ headless: CONFIG.headless });
+  const browser = await chromium.launch({
+    headless: CONFIG.headless,
+    args: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-blink-features=AutomationControlled',
+      '--disable-features=IsolateOrigins,site-per-process',
+      '--disable-dev-shm-usage',
+      '--disable-web-security',
+      '--lang=es-CL,es',
+    ]
+  });
   const results = [];
 
   try {
     for (const pageConfig of selectedPages) {
-      const result = await monitorPage(browser, pageConfig).catch((error) => ({
-        ...normalizePage(pageConfig),
-        status: 'error',
-        error: error.message,
-        diffPercent: 0,
-        changed: false
-      }));
+      const result = await monitorPageWithRetry(browser, pageConfig, 2);
       results.push(result);
       console.log(`${result.status.toUpperCase()} ${result.brand} / ${result.name}: ${result.diffPercent?.toFixed?.(3) ?? 0}%`);
     }
@@ -165,6 +170,29 @@ function parseIgnoreSelectors(value) {
   }
 }
 
+async function monitorPageWithRetry(browser, rawPageConfig, maxRetries) {
+  const pageConfig = normalizePage(rawPageConfig);
+  let lastError;
+  for (let attempt = 1; attempt <= maxRetries + 1; attempt++) {
+    try {
+      return await monitorPage(browser, pageConfig);
+    } catch (error) {
+      lastError = error;
+      if (attempt <= maxRetries) {
+        console.warn(`  Retry ${attempt}/${maxRetries} for ${pageConfig.brand}/${pageConfig.name}: ${error.message.slice(0, 80)}`);
+        await new Promise((r) => setTimeout(r, 3000 * attempt));
+      }
+    }
+  }
+  return {
+    ...pageConfig,
+    status: 'error',
+    error: lastError.message,
+    diffPercent: 0,
+    changed: false
+  };
+}
+
 async function monitorPage(browser, rawPageConfig) {
   const pageConfig = normalizePage(rawPageConfig);
   const slug = makeSlug(`${pageConfig.brand}-${pageConfig.category}-${pageConfig.name}-${pageConfig.viewport}`);
@@ -179,7 +207,16 @@ async function monitorPage(browser, rawPageConfig) {
     deviceScaleFactor: 1,
     reducedMotion: 'reduce',
     colorScheme: 'light',
-    locale: 'es-CL'
+    locale: 'es-CL',
+    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+    extraHTTPHeaders: {
+      'Accept-Language': 'es-CL,es;q=0.9,en;q=0.8',
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+      'sec-ch-ua': '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
+      'sec-ch-ua-mobile': '?0',
+      'sec-ch-ua-platform': '"Windows"',
+      'Upgrade-Insecure-Requests': '1',
+    }
   });
 
   const page = await context.newPage();
@@ -187,13 +224,43 @@ async function monitorPage(browser, rawPageConfig) {
   page.setDefaultNavigationTimeout(CONFIG.timeoutMs);
 
   try {
-    await page.goto(pageConfig.url, { waitUntil: 'networkidle', timeout: CONFIG.timeoutMs });
+    // Hide webdriver property to avoid bot detection
+    await page.addInitScript(() => {
+      Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+      Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
+      window.chrome = { runtime: {} };
+    });
+
+    await page.goto(pageConfig.url, { waitUntil: 'domcontentloaded', timeout: CONFIG.timeoutMs });
+
+    // Wait for body and check for Cloudflare challenge
+    await page.waitForSelector('body', { timeout: 15_000 });
+    const title = await page.title();
+    if (/just a moment|checking your browser|cloudflare|ddos/i.test(title)) {
+      // Wait for challenge to resolve (up to 15s)
+      await page.waitForFunction(
+        () => !/just a moment|checking your browser/i.test(document.title),
+        { timeout: 15_000 }
+      ).catch(() => null);
+    }
+
+    // Wait for network to settle and meaningful content to appear
+    await page.waitForLoadState('networkidle', { timeout: 20_000 }).catch(() => null);
+    await page.waitForTimeout(1500);
+
     await dismissCommonPopups(page);
     await maskSelectors(page, [...DEFAULT_IGNORE_SELECTORS, ...pageConfig.ignoreSelectors]);
     await autoScroll(page);
-    await page.waitForLoadState('networkidle', { timeout: 30_000 }).catch(() => null);
+    await page.waitForLoadState('networkidle', { timeout: 10_000 }).catch(() => null);
     await page.evaluate(() => window.scrollTo(0, 0));
-    await page.waitForTimeout(800);
+    await page.waitForTimeout(1000);
+
+    // Verify we got real content, not an error page
+    const bodyText = await page.evaluate(() => document.body?.innerText?.slice(0, 200) ?? '');
+    if (!bodyText.trim()) {
+      throw new Error(`Página vacía o sin contenido para ${pageConfig.url}`);
+    }
+
     await page.screenshot({ path: currentPath, fullPage: true, animations: 'disabled' });
   } finally {
     await context.close();

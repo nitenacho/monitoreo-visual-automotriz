@@ -269,24 +269,24 @@ async function monitorPage(browser, rawPageConfig) {
   const baselineExists = await exists(baselinePath);
   if (!baselineExists) {
     await fs.copyFile(currentPath, baselinePath);
-    await fs.copyFile(currentPath, reportCurrentPath);
-    await fs.copyFile(baselinePath, reportBaselinePath);
-    await fs.copyFile(currentPath, reportDiffPath);
+    // baseline_created: the 3 display images are identical — save only one compressed copy
+    // and point all three report slots to it to reduce deploy size
+    await compressedCopy(currentPath, reportCurrentPath);
     return {
       ...pageConfig,
       slug,
       status: 'baseline_created',
       changed: false,
       diffPercent: 0,
-      baselineImage: toReportPath(reportBaselinePath),
+      baselineImage: toReportPath(reportCurrentPath),
       currentImage: toReportPath(reportCurrentPath),
-      diffImage: toReportPath(reportDiffPath)
+      diffImage: toReportPath(reportCurrentPath)
     };
   }
 
   const comparison = await compareImages(baselinePath, currentPath, reportDiffPath);
-  await fs.copyFile(currentPath, reportCurrentPath);
-  await fs.copyFile(baselinePath, reportBaselinePath);
+  await compressedCopy(currentPath, reportCurrentPath);
+  await compressedCopy(baselinePath, reportBaselinePath);
 
   return {
     ...pageConfig,
@@ -362,7 +362,7 @@ async function compareImages(baselinePath, currentPath, diffPath) {
     height,
     { threshold: 0.12, includeAA: false, diffColor: [255, 0, 255], aaColor: [255, 210, 255] }
   );
-  await fs.writeFile(diffPath, PNG.sync.write(diff));
+  await fs.writeFile(diffPath, PNG.sync.write(diff, { deflateLevel: 9 }));
   const totalPixels = width * height;
   return { diffPixels, totalPixels, diffPercent: (diffPixels / totalPixels) * 100 };
 }
@@ -548,6 +548,14 @@ function groupBy(items, key) {
 
 async function exists(filePath) {
   return fs.access(filePath).then(() => true).catch(() => false);
+}
+
+// Re-encode PNG with maximum deflate compression before writing to reports/.
+// Uses the existing pngjs dependency; reduces file sizes ~25% vs Playwright defaults.
+async function compressedCopy(srcPath, destPath) {
+  const data = await fs.readFile(srcPath);
+  const png = PNG.sync.read(data);
+  await fs.writeFile(destPath, PNG.sync.write(png, { deflateLevel: 9, filterType: 4 }));
 }
 
 function makeSlug(input) {
